@@ -2,7 +2,9 @@ use bevy::prelude::*;
 use bevy_pancam::{self, PanCam, PanCamPlugin};
 use geo_types::Coord;
 use h3ron::{H3Cell, Index, ToCoordinate};
+use image::ImageReader;
 use std::f32::consts::PI;
+mod bitmap2h3cell;
 
 #[derive(Component, Debug, Clone, Copy, PartialEq, Eq, Hash)]
 struct HexCoord {
@@ -14,7 +16,6 @@ fn main() {
     let mut app = App::new();
     app.add_plugins((DefaultPlugins, PanCamPlugin::default()))
         .add_systems(Startup, setup);
-    #[cfg(not(target_arch = "wasm32"))]
     app.run();
 }
 
@@ -23,6 +24,11 @@ fn setup(
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<ColorMaterial>>,
 ) {
+    let img = ImageReader::open("test.png")
+        .unwrap()
+        .decode()
+        .unwrap()
+        .to_luma8();
     commands.spawn((Camera2d, PanCam::default()));
 
     // params for h3
@@ -37,26 +43,17 @@ fn setup(
         resolution,
     )
     .unwrap();
-    let k_distance = match resolution {
-        4 => 7,
-        5 => 20,
-        6 => 30,
-        _ => 15,
-    };
+    let k_distance = 30;
     // params
     let cells = center_cell.grid_disk(k_distance).unwrap();
-    let hex_scaling_factor = match resolution {
-        4 => 800.0,
-        5 => 400.0,
-        6 => 200.0,
-        _ => 400.0,
-    };
+    let hex_scaling_factor = 400.0;
+    let elevation_map = bitmap2h3cell::h3_cells_to_elevation_map(&img, cells.into()).unwrap();
 
     // offset
     let center_point = h3_to_local_coordinates(&center_cell, hex_scaling_factor);
 
     // generate hexmap
-    for cell in &cells {
+    for (cell, elev) in &elevation_map {
         // convert from h3
         let position = h3_to_local_coordinates(&cell, hex_scaling_factor);
 
@@ -65,19 +62,10 @@ fn setup(
         let y = position.1 - center_point.1;
 
         // calculate hex radius
-        let hex_radius = match resolution {
-            4 => 45.0,
-            5 => 32.5,
-            6 => 15.0,
-            _ => 25.0,
-        };
+        let hex_radius = 32.5;
 
         // set colors
-        let hue = (Vec2::new(x, y).to_angle() + PI) / (2.0 * PI) * 360.0;
-        let distance_from_center = (x * x + y * y).sqrt() / (hex_scaling_factor * 0.2);
-        let saturation = 1.0 - 0.8 * (distance_from_center / k_distance as f32).min(1.0);
-        let lightness = 0.5;
-        let color = Color::hsl(hue, saturation, lightness);
+        let color = elevation_to_color(*elev);
 
         // generate hexagonal mesh
         let hex_mesh = meshes.add(RegularPolygon::new(hex_radius, 6));
@@ -91,7 +79,7 @@ fn setup(
 
         // display hex infomation
         let co = cell.to_coordinate().unwrap();
-        let info_text = format!("lat: {:.3}\nlng:{:.3}\nsat: {:.3}", co.y, co.x, saturation);
+        let info_text = format!("lat: {:.3}\nlng:{:.3}\nelev: {:.1}", co.y, co.x, elev);
         commands.spawn((
             Text2d::new(info_text),
             TextFont {
@@ -104,7 +92,7 @@ fn setup(
 }
 
 fn h3_to_local_coordinates(cell: &H3Cell, scaling_factor: f32) -> (f32, f32) {
-    // get center position of h3 cell
+    // get center position of h2 cell
     let co = cell.to_coordinate().unwrap();
 
     // convert the coordinate to position
@@ -112,4 +100,28 @@ fn h3_to_local_coordinates(cell: &H3Cell, scaling_factor: f32) -> (f32, f32) {
     let y = co.y as f32 * scaling_factor;
 
     (x, y)
+}
+
+pub fn elevation_to_color(elevation: f64) -> Color {
+    if elevation <= 0.0 {
+        // waters: normalize -1000〜0 m into 0.0〜1.0
+        let t = (elevation / -1000.0).clamp(0.0, 1.0) * (-1.0) + 1.0;
+
+        // HSL: cyan to navy
+        let hue = 220.0 - t * 20.0; // 220 → 200
+        let sat = 0.6 - t * 0.1; // 0.6 → 0.5
+        let light = 0.3 + t * 0.4; // 0.3 → 0.7
+
+        Color::hsl(hue as f32, sat as f32, light as f32)
+    } else {
+        // ground: normalize 0〜8000 m into 0.0〜1.0
+        let t = (elevation / 8000.0).clamp(0.0, 1.0);
+
+        // HSL: 茶 → 白
+        let hue = 30.0 * (1.0 - t); // 30 → 0
+        let sat = 0.5 * (1.0 - t); // 0.5 → 0
+        let light = 0.3 + t * 0.7; // 0.3 → 1.0
+
+        Color::hsl(hue as f32, sat as f32, light as f32)
+    }
 }
