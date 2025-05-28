@@ -1627,19 +1627,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "climate-sim"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "bevy",
- "bevy_pancam",
- "geo-types",
- "h3ron",
- "h3ron-h3-sys",
- "image",
-]
-
-[[package]]
 name = "codespan-reporting"
 version = "0.11.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3049,6 +3036,19 @@ dependencies = [
  "log",
  "objc",
  "paste",
+]
+
+[[package]]
+name = "meteoraura"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "bevy",
+ "bevy_pancam",
+ "geo-types",
+ "h3ron",
+ "h3ron-h3-sys",
+ "image",
 ]
 
 [[package]]
